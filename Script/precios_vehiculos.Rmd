@@ -1,3 +1,5 @@
+# Marco Curcio y Glorianna alfonzojg
+# Fecha de creación:16/09/2024
 
 
 ```{r setup, include=FALSE}

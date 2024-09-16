@@ -1,0 +1,266 @@
+
+
+```{r setup, include=FALSE}
+setwd("C:/Users/alfonzojg/Desktop/proyectos/autos/csv_autos")
+#cargo librerias
+library(tidyverse)
+library(ggtext)
+library(showtext)
+```
+```{r}
+#agrego la fuente con la que voy a trabajar
+font_add_google("Montserrat", "montserrat")
+showtext_auto()
+```
+
+
+```{r}
+# Crear un data frame vacío para almacenar los resultados
+directorio <- "C:/Users/alfonzojg/Desktop/proyectos/autos/csv_autos/input"
+
+# Obtener todos los archivos CSV en el directorio
+archivos <- list.files(directorio, pattern = "links_autos_meli_\\d{8}\\.csv", full.names = TRUE)
+
+# Crear un data frame vacío para almacenar los resultados
+autos <- data.frame()
+
+# Iterar sobre cada archivo encontrado
+for (archivo in archivos) {
+  # Leer el archivo CSV
+  df <- read.csv(archivo)
+  
+  # Extraer la fecha del nombre del archivo para usarla en las operaciones
+  fecha <- gsub(".*_(\\d{8})\\.csv", "\\1", archivo)  # Extrae la fecha en formato YYYYMMDD
+  
+  # Convertir la fecha al formato requerido para las columnas
+  fecha_col <- gsub("(\\d{4})(\\d{2})(\\d{2})", "\\1.\\2.\\3", fecha)
+  
+  # Nombre de la columna de precios
+  precio_col_name <- paste0("precio_", fecha_col)
+  
+  # Identificar y limpiar los precios
+  df[[precio_col_name]] <- ifelse(
+    grepl("^\\$", df[[precio_col_name]]), # Si contiene solo "$" al inicio
+    as.numeric(gsub("\\$|\\.", "", df[[precio_col_name]])) / 1300, # Remover símbolo "$" y dividir por 1300
+    as.numeric(gsub("\\.|US\\$", "", df[[precio_col_name]])) # Remover "." y "US$"
+  )
+  
+  # Calcular la media del precio por modelo
+  df_mean <- df %>%
+    group_by(Modelo) %>%
+    summarise(mean_precio = mean(get(precio_col_name), na.rm = TRUE))
+  
+  # Renombrar la columna de la media para la fecha correspondiente
+  colnames(df_mean)[2] <- gsub("\\.", "_", substr(fecha_col, 6, 10)) # Cambia la fecha a "MM_DD"
+  
+  # Realizar el join con el dataframe principal
+  if (nrow(autos) == 0) {
+    autos <- df_mean
+  } else {
+    autos <- left_join(autos, df_mean, by = "Modelo")
+  }
+}
+```
+
+```{r}
+# Filtrar modelos que tuvieron cambios de precio
+autos_long <- autos %>%
+  pivot_longer(cols = -Modelo, names_to = "Fecha", values_to = "Precio") %>%
+  group_by(Modelo) %>%
+  filter(any(diff(Precio, na.rm = TRUE) != 0)) # Filtrar modelos con cambios en los precios
+
+autos_long$Fecha <- as.Date(autos_long$Fecha, format = "%m_%d")
+```
+
+```{r}
+#primero mostramos la evolución del precio promedio de todos los autos que tuvieron variaciones en los ultimos dias y agregamos lineas de tendencia
+cutoff <- "2024-09-01"
+
+autos_long %>%
+  drop_na(Precio) %>%
+  group_by(Fecha) %>%
+  summarise(promedio = mean(Precio)) %>%
+  ggplot(aes(x = Fecha, y = promedio)) +
+  geom_line(color = "#242C4F")  +
+  geom_smooth(aes(group = Fecha >= cutoff), 
+              method = "lm",
+              color = "#E6B861",
+              alpha = 0.1) + 
+  geom_segment(aes(x = as.Date("2024-09-01"), xend = as.Date("2024-09-01"), y = 30000, yend = 40000), 
+              linetype = "dashed",
+              color = "#E6B861",
+              linewidth = 1) +
+  theme(legend.position = "none", 
+        panel.background = element_rect(fill='transparent'), 
+        plot.background = element_rect(fill='transparent', color=NA), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        legend.background = element_rect(fill='transparent'),
+        legend.box.background = element_rect(fill='transparent'),
+        text = element_text(size = 14, family = "montserrat")) + 
+  labs(title = "Precio promedio de publicaciones de autos nuevos",
+       caption = "Datos desde 29 de agosto al 12 de septiembre\nFuente: Elaboración propia en base a datos obtenidos de MercadoLibre") +
+  ylab("Precio en US$") +
+  xlab("Dia")
+```
+Podemos observar una fuerte caida de los precios a partir del 1 de septiembre, fecha en la que se redujo en 10% el impuesto país. A pesar de esto hay una tendencia positiva que indica que los precios estan volviendo a subir.
+```{r}
+#vamos a observar las variaciones de precios agrupando por marca de auto, para eso primero creamos una columna de marca que nos permitira agrupar adecuadamente
+autos_long <- autos_long %>%
+  mutate(marca = case_when(grepl("Alfa Romeo", Modelo)~ "Alfa Romeo",
+                           grepl("Audi",Modelo)~"Audi",
+                           grepl("Bmw",Modelo)~"BMW",
+                           grepl("Changan",Modelo)~"Changan",
+                           grepl("Chevrolet",Modelo)~"Chevrolet",
+                           grepl("Citroën",Modelo)~"Citroën",
+                           grepl("Coradir",Modelo)~ "Coradir",
+                           grepl("Dfsk",Modelo)~"Dfsk",
+                           grepl("Dodge",Modelo)~"Dodge",
+                           grepl("Ds",Modelo)~"Ds",
+                           grepl("Fiat",Modelo)~"Fiat",
+                           grepl("Ford",Modelo)~"Ford",
+                           grepl("Foton",Modelo)~"Foton",
+                           grepl("Great Wall",Modelo)~"Great Wall",
+                           grepl("Haval",Modelo)~"Haval",
+                           grepl("Honda",Modelo)~"Honda",
+                           grepl("Hyundai",Modelo)~"Hyundai",
+                           grepl("Jeep",Modelo)~"Jeep",
+                           grepl("Kia",Modelo)~"Kia",
+                           grepl("Mercedes-benz",Modelo)~"Mercedes-benz",
+                           grepl("Mini",Modelo)~"Mini",
+                           grepl("Mitsubishi",Modelo)~"Mitsubishi",
+                           grepl("Nissan",Modelo)~"Nissan",
+                           grepl("Peugeot",Modelo)~"Peugeot",
+                           grepl("Porsche",Modelo)~"Porsche",
+                           grepl("Ram",Modelo)~"Ram",
+                           grepl("Renault",Modelo)~"Renault",
+                           grepl("Toyota",Modelo)~"Toyota",
+                           grepl("Volkswagen",Modelo)~"Volkswagen",
+                           grepl("Volvo",Modelo)~"Volvo",
+                           grepl("Zanella",Modelo)~"Zanella"))
+#hacemos el grafico
+autos_long %>%
+  drop_na(Precio) %>%
+  filter(marca == "Renault" |
+         marca == "Volkswagen" |
+         marca == "Toyota" |
+         marca == "Fiat" |
+         marca == "Peugeot" |
+         marca == "Chevrolet" |
+         marca == "Ford") %>%
+  group_by(Fecha,marca) %>%
+  summarise(promedio = mean(Precio)) %>%
+  ggplot(aes(x = Fecha, y = promedio, group = marca, color = marca)) +
+  geom_line()  +
+  scale_color_manual(values = c(
+    "Renault" = "#0055A4",   
+    "Volkswagen" = "#C0C0C0",     
+    "Toyota" = "#EB0A1E", 
+    "Fiat" = "#FF2800", 
+    "Peugeot" = "#003366", 
+    "Chevrolet" = "#000000", 
+    "Ford" = "#1C3D7C")) +
+  geom_segment(aes(x = as.Date("2024-09-01"), xend = as.Date("2024-09-01"), y = 15000, yend = 40000), 
+              linetype = "dashed",
+              color = "#E6B861",
+              linewidth = 1) +
+  theme(legend.position = "bottom", 
+        panel.background = element_rect(fill='transparent'), 
+        plot.background = element_rect(fill='transparent', color=NA), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        legend.background = element_rect(fill='transparent'),
+        legend.box.background = element_rect(fill='transparent'),
+        text = element_text(size = 14, family = "montserrat")) + 
+  labs(title = "Precio promedio de publicaciones de autos nuevos",
+       caption = "Datos desde 29 de agosto al 12 de septiembre\nFuente: Elaboración propia en base a datos obtenidos de MercadoLibre") +
+  ylab("Precio en US$") +
+  xlab("Dia")
+
+options(scipen = 10)
+```
+
+```{r}
+# 2. Calcular la diferencia de precios día a día por cada modelo
+autos_diff <- autos_long %>%
+  group_by(Modelo) %>%
+  mutate(variacion = Precio - lag(Precio)) %>%  # Calcular la diferencia con el día anterior
+  filter(!is.na(variacion))  # Remover filas donde no hay diferencia (primer día)
+
+# 3. Calcular la variación promedio por modelo
+autos_variacion_promedio <- autos_diff %>%
+  filter(marca == "Renault" |
+         marca == "Volkswagen" |
+         marca == "Toyota" |
+         marca == "Fiat" |
+         marca == "Peugeot" |
+         marca == "Chevrolet" |
+         marca == "Ford") %>%
+  group_by(Modelo) %>%
+  summarise(variacion_promedio = mean(variacion, na.rm = TRUE)) %>%
+  arrange(variacion_promedio)  # Ordenar de menor a mayor para encontrar las variaciones negativas más altas
+
+# 4. Seleccionar las 10 filas con la mayor variación negativa
+top_10_variacion_negativa <- autos_variacion_promedio %>%
+  slice(1:10)  # Selecciona las 10 de mayor variación negativa
+top_10_variacion_negativa %>%
+  ggplot(aes(x = variacion_promedio, y = Modelo)) +
+  geom_bar(stat = "identity", fill = "#242C4F")  +
+  theme(legend.position = "bottom", 
+        panel.background = element_rect(fill='transparent'), 
+        plot.background = element_rect(fill='transparent', color=NA), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        legend.background = element_rect(fill='transparent'),
+        legend.box.background = element_rect(fill='transparent'),
+        text = element_text(size = 14, family = "montserrat")) + 
+  labs(title = "Top 10 autos con mayor disminución de precio",
+       caption = "Datos desde 29 de agosto al 12 de septiembre\nFuente: Elaboración propia en base a datos obtenidos de MercadoLibre") +
+  ylab("Modelo") +
+  xlab("Variación en US$")
+```
+```{r}
+autos_long <- autos_long %>%
+  mutate(Fecha = as.Date(Fecha, format = "%Y.%m.%d"))
+
+diferencia_precios <- autos_long %>%
+  filter(marca == "Renault" |
+         marca == "Volkswagen" |
+         marca == "Toyota" |
+         marca == "Fiat" |
+         marca == "Peugeot" |
+         marca == "Chevrolet" |
+         marca == "Ford") %>%
+  drop_na(Precio) %>%
+  group_by(Modelo) %>%
+  summarise(
+    fecha_min = min(Fecha),
+    fecha_max = max(Fecha),
+    precio_min = min(Precio[Fecha == fecha_min], na.rm = TRUE),
+    precio_max = max(Precio[Fecha == fecha_max], na.rm = TRUE),
+    diferencia_precio = precio_max - precio_min
+  ) %>%
+  arrange(diferencia_precio)  # Ordenar por diferencia de precio, de menor a mayor
+
+# Seleccionar los 10 autos con mayor diferencia negativa
+top_10_variacion_negativa <- diferencia_precios %>%
+  filter(diferencia_precio < 0) %>%  # Filtrar solo variaciones negativas
+  slice(1:10)  # Seleccionar las 10 mayores variaciones negativas
+
+top_10_variacion_negativa %>%
+  ggplot(aes(x = diferencia_precio, y = Modelo)) +
+  geom_bar(stat = "identity", fill = "#242C4F")  +
+  theme(legend.position = "bottom", 
+        panel.background = element_rect(fill='transparent'), 
+        plot.background = element_rect(fill='transparent', color=NA), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        legend.background = element_rect(fill='transparent'),
+        legend.box.background = element_rect(fill='transparent'),
+        text = element_text(size = 14, family = "montserrat")) + 
+  labs(title = "Top 10 autos con mayor disminución de precio",
+       caption = "Datos desde 29 de agosto al 12 de septiembre\nFuente: Elaboración propia en base a datos obtenidos de MercadoLibre") +
+  ylab("Modelo") +
+  xlab("Variación en US$")
+```
+
